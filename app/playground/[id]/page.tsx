@@ -13,6 +13,7 @@ const MainPlaygroundPage = () => {
 
   return (
     <div>
+        
         Params : {id}
     </div>
   )
