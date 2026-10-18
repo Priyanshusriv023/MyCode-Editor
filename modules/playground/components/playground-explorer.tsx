@@ -215,7 +215,7 @@ interface TemplateNodeProps {
   level: number;
   path?: string;
   onAddFile?: (file: TemplateFile, parentPath: string) => void;
-  onAddFolder?: (folder: TemplateFolder, parentPath: string) => void;
+  onAddFolder?: (folder: TemplaateFolder, parentPath: string) => void;
   onDeleteFile?: (file: TemplateFile, parentPath: string) => void;
   onDeleteFolder?: (folder: TemplateFolder, parentPath: string) => void;
   onRenameFile?: (
