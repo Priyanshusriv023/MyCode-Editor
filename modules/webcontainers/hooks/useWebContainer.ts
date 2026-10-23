@@ -15,6 +15,19 @@ interface UseWebContaierReturn {
   destory: () => void;
 }
 
+// Shared across all mounts: boot() is only ever called once
+let bootPromise: Promise<WebContainer> | null = null;
+
+function getWebContainer(): Promise<WebContainer> {
+  if (!bootPromise) {
+    bootPromise = WebContainer.boot().catch((err) => {
+      bootPromise = null; // allow retry if boot failed
+      throw err;
+    });
+  }
+  return bootPromise;
+}
+
 export const useWebContainer = ({
   templateData,
 }: UseWebContainerProps): UseWebContaierReturn => {
@@ -26,34 +39,27 @@ export const useWebContainer = ({
   useEffect(() => {
     let mounted = true;
 
-    async function initializeWebContainer() {
-      try {
-        const webcontainerInstance = await WebContainer.boot();
-
+    getWebContainer()
+      .then((wc) => {
         if (!mounted) return;
-
-        setInstance(webcontainerInstance);
+        setInstance(wc);
         setIsLoading(false);
-      } catch (error) {
-        console.error("Failed to initialize WebContainer:", error);
+      })
+      .catch((err) => {
+        console.error("Failed to initialize WebContainer:", err);
         if (mounted) {
           setError(
-            error instanceof Error
-              ? error.message
+            err instanceof Error
+              ? err.message
               : "Failed to initialize WebContainer"
           );
           setIsLoading(false);
         }
-      }
-    }
+      });
 
-    initializeWebContainer();
-
+    // No teardown here: the instance is shared and must survive remounts
     return () => {
       mounted = false;
-      if (instance) {
-        instance.teardown();
-      }
     };
   }, []);
 
@@ -82,13 +88,14 @@ export const useWebContainer = ({
     [instance]
   );
 
-  const destory = useCallback(()=>{
-    if(instance){
-        instance.teardown()
-        setInstance(null);
-        setServerUrl(null)
+  const destory = useCallback(() => {
+    if (instance) {
+      instance.teardown();
+      bootPromise = null; // so a later boot is allowed
+      setInstance(null);
+      setServerUrl(null);
     }
-  },[instance])
+  }, [instance]);
 
-  return {serverUrl , isLoading , error , instance , writeFileSync , destory}
+  return { serverUrl, isLoading, error, instance, writeFileSync, destory };
 };
