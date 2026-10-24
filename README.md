@@ -1,6 +1,6 @@
-# VibeCode Editor
+# MyCode-Editor
 
-VibeCode Editor is an AI-assisted, browser-based development environment for
+MyCode-Editor is an AI-assisted, browser-based development environment for
 creating and running frontend projects without leaving the browser. It combines
 a Monaco-powered editor, WebContainers, a terminal, live previews, project
 management, and an AI coding assistant in one workspace.
