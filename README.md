@@ -152,11 +152,6 @@ as Vercel or any Node.js hosting provider. Before deploying:
 4. Keep the cross-origin isolation headers enabled so WebContainers continue to
    work.
 
-## Contributing
-
-Contributions are welcome. Please open an issue to discuss a substantial
-change before submitting a pull request.
-
 ## License
 
 All rights reserved. This project is shared for portfolio and demonstration purposes.
