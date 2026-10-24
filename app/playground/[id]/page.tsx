@@ -37,6 +37,7 @@ import WebContainerPreview from "@/modules/webcontainers/components/webcontainer
 import { useWebContainer } from "@/modules/webcontainers/hooks/useWebContainer";
 import {
   AlertCircle,
+  ArrowLeft,
   Bot,
   FileText,
   FolderOpen,
@@ -45,6 +46,7 @@ import {
   X,
 } from "lucide-react";
 import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import React, {
   useCallback,
   useEffect,
@@ -56,6 +58,7 @@ import { toast } from "sonner";
 
 const MainPlaygroundPage = () => {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
 
   const { playgroundData, templateData, isLoading, error, saveTemplateData } =
@@ -84,7 +87,6 @@ const MainPlaygroundPage = () => {
   } = useFileExplorer();
 
   const {
-    serverUrl,
     isLoading: containerLoading,
     error: containerError,
     instance,
@@ -370,6 +372,15 @@ const MainPlaygroundPage = () => {
             <Separator orientation="vertical" className="mr-2 h-4" />
 
             <div className="flex flex-1 items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => router.replace("/dashboard")}
+                aria-label="Back to dashboard"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Dashboard</span>
+              </Button>
               <div className="flex flex-col flex-1">
                 <h1 className="text-sm font-medium">
                   {playgroundData?.title || "Code Playground"}
@@ -382,30 +393,34 @@ const MainPlaygroundPage = () => {
 
               <div className="flex items-center gap-1">
                 <Tooltip>
-                  <TooltipTrigger>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSave()}
-                      disabled={!activeFile || !activeFile.hasUnsavedChanges}
-                    >
-                      <Save className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSave()}
+                        disabled={!activeFile || !activeFile.hasUnsavedChanges}
+                      >
+                        <Save className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
                   <TooltipContent>Save (Ctrl+S)</TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleSaveAll}
-                      disabled={!hasUnsavedChanges}
-                    >
-                      <Save className="h-4 w-4" /> All
-                    </Button>
-                  </TooltipTrigger>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSaveAll}
+                        disabled={!hasUnsavedChanges}
+                      >
+                        <Save className="h-4 w-4" /> All
+                      </Button>
+                    }
+                  />
                   <TooltipContent>Save All (Ctrl+Shift+S)</TooltipContent>
                 </Tooltip>
 
@@ -521,10 +536,8 @@ const MainPlaygroundPage = () => {
                           <WebContainerPreview
                             templateData={templateData}
                             instance={instance}
-                            writeFileSync={writeFileSync}
                             isLoading={containerLoading}
                             error={containerError}
-                            serverUrl={serverUrl!}
                             forceResetup={false}
                           />
                         </ResizablePanel>

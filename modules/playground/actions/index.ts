@@ -29,7 +29,7 @@ export const getPlaygroundById = async(id:string)=>{
 
 export const SaveUpdatedCode = async(playgroundId:string , data:TemplateFolder)=>{
     const user = await currentUser();
-  if (!user) return null;
+    if (!user) throw new Error("You must be signed in to save playground changes");
 
   try {
     const updatedPlayground = await db.templateFile.upsert({
@@ -48,6 +48,6 @@ export const SaveUpdatedCode = async(playgroundId:string , data:TemplateFolder)=
     return updatedPlayground;
   } catch (error) {
      console.log("SaveUpdatedCode error:", error);
-    return null;
+    throw new Error("Failed to save playground changes");
   }
 }

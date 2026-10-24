@@ -1,5 +1,5 @@
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 
 interface AISuggestionsState {
@@ -19,6 +19,7 @@ interface UseAISuggestionsReturn extends AISuggestionsState {
 }
 
 export const useAISuggestions = (): UseAISuggestionsReturn => {
+    const requestControllerRef = useRef<AbortController | null>(null);
     const [state, setState] = useState<AISuggestionsState>({
         suggestion: null,
         isLoading: false,
@@ -32,70 +33,54 @@ export const useAISuggestions = (): UseAISuggestionsReturn => {
     }, [])
 
     const fetchSuggestion = useCallback(async (type: string, editor: any) => {
-        setState((currentState) => {
+        if (!state.isEnabled || !editor) return;
 
-            if (!currentState.isEnabled) {
-                return currentState
+        const model = editor.getModel();
+        const cursorPosition = editor.getPosition();
+        if (!model || !cursorPosition) return;
+
+        requestControllerRef.current?.abort();
+        const controller = new AbortController();
+        requestControllerRef.current = controller;
+        setState((currentState) => ({ ...currentState, isLoading: true }));
+
+        try {
+            const response = await fetch("/api/code-completion", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    fileContent: model.getValue(),
+                    cursorLine: cursorPosition.lineNumber - 1,
+                    cursorColumn: cursorPosition.column - 1,
+                    suggestionType: type
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || `API responded with status ${response.status}`);
             }
 
-            if (!editor) {
-                return currentState
+            const suggestionText =
+                typeof data.suggestion === "string" ? data.suggestion.trim() : "";
+            if (requestControllerRef.current !== controller) return;
+            setState((prev) => ({
+                ...prev,
+                suggestion: suggestionText || null,
+                position: suggestionText
+                    ? { line: cursorPosition.lineNumber, column: cursorPosition.column }
+                    : null,
+                isLoading: false
+            }));
+        } catch (error) {
+            if (!(error instanceof DOMException && error.name === "AbortError")) {
+                console.error("Error fetching code suggestion:", error);
             }
-
-            const model = editor.getModel();
-            const cursorPosition = editor.getPosition()
-
-            if (!model || !cursorPosition) {
-                return currentState
+            if (requestControllerRef.current === controller) {
+                setState((prev) => ({ ...prev, isLoading: false }));
             }
-
-            const newState = { ...currentState, isLoading: true };
-
-            (async () => {
-                try {
-                    const payload = {
-                        fileContent: model.getValue(),
-                        cursorLine: cursorPosition.lineNumber - 1,
-                        cursorColumn: cursorPosition.column - 1,
-                        suggestionType: type
-                    }
-
-                    const response = await fetch("/api/code-completion", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload)
-                    })
-                    if (!response.ok) {
-                        throw new Error(`API responded with status ${response.status}`);
-                    }
-
-                    const data = await response.json()
-
-                    if (data.suggestion) {
-                        const suggestionText = data.suggestion.trim();
-                        setState((prev) => ({
-                            ...prev,
-                            suggestion: suggestionText,
-                            position: {
-                                line: cursorPosition.lineNumber,
-                                column: cursorPosition.column
-                            },
-                            isLoading: false
-                        }))
-                    }
-                    else {
-                        console.warn("No suggestion received from API.");
-                        setState((prev) => ({ ...prev, isLoading: false }));
-                    }
-                } catch (error) {
-                    console.error("Error fetching code suggestion:", error);
-                    setState((prev) => ({ ...prev, isLoading: false }));
-                }
-            })();
-
-            return newState
-        })
-    }, [])
+        }
+    }, [state.isEnabled])
 
 
    const acceptSuggestion = useCallback((editor: any, monaco: any) => {

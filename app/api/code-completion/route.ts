@@ -30,7 +30,15 @@ export async function POST(request: NextRequest) {
       body;
 
     // Validate input
-    if (!fileContent || cursorLine < 0 || cursorColumn < 0 || !suggestionType) {
+    if (
+      typeof fileContent !== "string" ||
+      typeof cursorLine !== "number" ||
+      typeof cursorColumn !== "number" ||
+      cursorLine < 0 ||
+      cursorColumn < 0 ||
+      typeof suggestionType !== "string" ||
+      !suggestionType
+    ) {
       return NextResponse.json(
         { error: "Invalid input parameters" },
         { status: 400 }
@@ -58,11 +66,13 @@ export async function POST(request: NextRequest) {
         generatedAt: new Date().toISOString(),
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Context analysis error:", error);
     return NextResponse.json(
-      { error: "Internal server error", message: error.message },
-      { status: 500 }
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      { status: 503 }
     );
   }
 }
@@ -138,29 +148,37 @@ Generate suggestion:`;
 }
 
 async function generateSuggestion(prompt: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+
   try {
     const response = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         model: "codellama:latest",
         prompt,
         stream: false,
-        option: {
+        options: {
           temperature: 0.7,
-          max_tokens: 300,
+          num_predict: 300,
         },
       }),
     });
 
-       if (!response.ok) {
+    if (!response.ok) {
       throw new Error(`AI service error: ${response.statusText}`)
     }
 
-      const data = await response.json()
-    let suggestion = data.response
+    const data = await response.json()
+    let suggestion = data.response;
 
-     // Clean up the suggestion
+    if (typeof suggestion !== "string") {
+      throw new Error("AI service returned an invalid response");
+    }
+
+    // Clean up the suggestion
     if (suggestion.includes("```")) {
       const codeMatch = suggestion.match(/```[\w]*\n?([\s\S]*?)```/)
       suggestion = codeMatch ? codeMatch[1].trim() : suggestion
@@ -168,8 +186,15 @@ async function generateSuggestion(prompt: string): Promise<string> {
 
     return suggestion
   } catch (error) {
-      console.error("AI generation error:", error)
-    return "// AI suggestion unavailable"
+    const message =
+      error instanceof DOMException && error.name === "AbortError"
+        ? "AI service timed out after 30 seconds"
+        : error instanceof Error
+          ? error.message
+          : "AI service unavailable";
+    throw new Error(message);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

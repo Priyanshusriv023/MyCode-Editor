@@ -11,11 +11,9 @@ import TerminalComponent from "./terminal";
 
 interface WebContainerPreviewProps {
   templateData: TemplateFolder;
-  serverUrl: string;
   isLoading: boolean;
   error: string | null;
   instance: WebContainer | null;
-  writeFileSync: (path: string, content: string) => Promise<void>;
   forceResetup?: boolean; // Optional prop to force re-setup
 }
 const WebContainerPreview = ({
@@ -23,8 +21,6 @@ const WebContainerPreview = ({
   error,
   instance,
   isLoading,
-  serverUrl,
-  writeFileSync,
   forceResetup = false,
 }: WebContainerPreviewProps) => {
   const [previewUrl, setPreviewUrl] = useState<string>("");
@@ -40,12 +36,21 @@ const WebContainerPreview = ({
   const [setupError, setSetupError] = useState<string | null>(null);
   const [isSetupComplete, setIsSetupComplete] = useState(false);
   const [isSetupInProgress, setIsSetupInProgress] = useState(false);
+  const [previewRevision, setPreviewRevision] = useState(0);
 
   const terminalRef = useRef<any>(null);
+  const setupLockRef = useRef(false);
+  const startProcessRef = useRef<{
+    kill: () => void;
+    exit: Promise<number>;
+  } | null>(null);
 
   // Reset setup state when forceResetup changes
   useEffect(() => {
     if (forceResetup) {
+      startProcessRef.current?.kill();
+      startProcessRef.current = null;
+      setupLockRef.current = false;
       setIsSetupComplete(false);
       setIsSetupInProgress(false);
       setPreviewUrl("");
@@ -62,7 +67,16 @@ const WebContainerPreview = ({
 
   useEffect(() => {
     async function setupContainer() {
-      if (!instance || isSetupComplete || isSetupInProgress) return;
+      if (
+        !instance ||
+        isSetupComplete ||
+        isSetupInProgress ||
+        setupLockRef.current
+      ) {
+        return;
+      }
+
+      setupLockRef.current = true;
 
       try {
         setIsSetupInProgress(true);
@@ -78,14 +92,20 @@ const WebContainerPreview = ({
             // Files are already mounted, just reconnect to existing server
             if (terminalRef.current?.writeToTerminal) {
               terminalRef.current.writeToTerminal(
-                "🔄 Reconnecting to existing WebContainer session...\r\n"
+                "🔄 Restarting the WebContainer preview...\r\n"
               );
             }
+
+            setCurrentStep(4);
+            setLoadingState((prev) => ({ ...prev, starting: true }));
+
+            const startProcess = await instance.spawn("npm", ["run", "start"]);
+            startProcessRef.current = startProcess;
 
             instance.on("server-ready", (port: number, url: string) => {
               if (terminalRef.current?.writeToTerminal) {
                 terminalRef.current.writeToTerminal(
-                  `🌐 Reconnected to server at ${url}\r\n`
+                  `🌐 Preview server ready at ${url}\r\n`
                 );
               }
 
@@ -95,10 +115,19 @@ const WebContainerPreview = ({
                 starting: false,
                 ready: true,
               }));
+              setIsSetupComplete(true);
+              setIsSetupInProgress(false);
             });
 
-            setCurrentStep(4);
-            setLoadingState((prev) => ({ ...prev, starting: true }));
+            startProcess.output.pipeTo(
+              new WritableStream({
+                write(data) {
+                  if (terminalRef.current?.writeToTerminal) {
+                    terminalRef.current.writeToTerminal(data);
+                  }
+                },
+              })
+            );
             return;
           }
         } catch (error) {}
@@ -151,11 +180,18 @@ const WebContainerPreview = ({
           );
         }
 
-        const installProcess = await instance.spawn("npm", ["install"]);
+        const installOutput: string[] = [];
+        const installProcess = await instance.spawn("npm", [
+          "install",
+          "--no-audit",
+          "--no-fund",
+          "--legacy-peer-deps",
+        ]);
 
         installProcess.output.pipeTo(
           new WritableStream({
             write(data) {
+              installOutput.push(data);
               if (terminalRef.current?.writeToTerminal) {
                 terminalRef.current.writeToTerminal(data);
               }
@@ -166,8 +202,12 @@ const WebContainerPreview = ({
         const installExitCode = await installProcess.exit;
 
         if (installExitCode !== 0) {
+          const output = installOutput.join("").trim();
+          const details = output
+            ? `\n\n${output.slice(-2000)}`
+            : "";
           throw new Error(
-            `Failed to install dependencies. Exit code: ${installExitCode}`
+            `Failed to install dependencies (npm exit code ${installExitCode}).${details}`
           );
         }
 
@@ -193,6 +233,7 @@ const WebContainerPreview = ({
         }
 
         const startProcess = await instance.spawn("npm", ["run", "start"]);
+        startProcessRef.current = startProcess;
 
         instance.on("server-ready", (port: number, url: string) => {
           if (terminalRef.current?.writeToTerminal) {
@@ -228,6 +269,7 @@ const WebContainerPreview = ({
         }
         setSetupError(errorMessage);
         setIsSetupInProgress(false);
+        setupLockRef.current = false;
         setLoadingState({
           transforming: false,
           mounting: false,
@@ -242,7 +284,78 @@ const WebContainerPreview = ({
   }, [instance, templateData, isSetupComplete, isSetupInProgress]);
 
   useEffect(() => {
-    return () => {};
+    if (!instance || !isSetupComplete) return;
+
+    let cancelled = false;
+
+    const syncTemplateFiles = async () => {
+      try {
+        const files = transformToWebContainerFormat(templateData);
+        await instance.mount(files);
+
+        if (cancelled) return;
+
+        // Restart the process so servers without reliable file watching serve
+        // the latest saved files instead of the previous module in memory.
+        const previousProcess = startProcessRef.current;
+        if (previousProcess) {
+          previousProcess.kill();
+          await previousProcess.exit;
+        }
+        if (cancelled) return;
+
+        const startProcess = await instance.spawn("npm", ["run", "start"]);
+        startProcessRef.current = startProcess;
+
+        instance.on("server-ready", (port: number, url: string) => {
+          if (cancelled) return;
+
+          if (terminalRef.current?.writeToTerminal) {
+            terminalRef.current.writeToTerminal(
+              `🌐 Preview refreshed at ${url}\r\n`
+            );
+          }
+          setPreviewUrl(url);
+          setPreviewRevision((revision) => revision + 1);
+          setLoadingState((prev) => ({
+            ...prev,
+            starting: false,
+            ready: true,
+          }));
+        });
+
+        startProcess.output.pipeTo(
+          new WritableStream({
+            write(data) {
+              if (terminalRef.current?.writeToTerminal) {
+                terminalRef.current.writeToTerminal(data);
+              }
+            },
+          })
+        );
+      } catch (err) {
+        console.error("Error syncing template files:", err);
+        if (!cancelled) {
+          const errorMessage =
+            err instanceof Error ? err.message : String(err);
+          setSetupError(`Failed to refresh preview: ${errorMessage}`);
+        }
+      }
+    };
+
+    syncTemplateFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [instance, templateData, isSetupComplete]);
+
+  useEffect(() => {
+    return () => {
+      startProcessRef.current?.kill();
+      startProcessRef.current = null;
+      setupLockRef.current = false;
+    };
   }, []);
 
   if (isLoading) {
@@ -345,7 +458,8 @@ const WebContainerPreview = ({
         <div className="h-full flex flex-col">
           <div className="flex-1">
             <iframe
-              src={previewUrl}
+              key={`${previewUrl}-${previewRevision}`}
+              src={`${previewUrl}?previewRevision=${previewRevision}`}
               className="w-full h-full border-none"
               title="WebContainer Preview"
             />

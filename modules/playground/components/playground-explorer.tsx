@@ -215,7 +215,7 @@ interface TemplateNodeProps {
   level: number;
   path?: string;
   onAddFile?: (file: TemplateFile, parentPath: string) => void;
-  onAddFolder?: (folder: TemplaateFolder, parentPath: string) => void;
+  onAddFolder?: (folder: TemplateFolder, parentPath: string) => void;
   onDeleteFile?: (file: TemplateFile, parentPath: string) => void;
   onDeleteFolder?: (folder: TemplateFolder, parentPath: string) => void;
   onRenameFile?: (
@@ -400,12 +400,14 @@ function TemplateNode({
         <Collapsible
           open={isOpen}
           onOpenChange={setIsOpen}
-          className="group/collapsible [&[data-state=open]>div>button>svg:first-child]:rotate-90"
+          className="group/collapsible"
         >
           <div className="flex items-center group">
             <CollapsibleTrigger asChild>
               <SidebarMenuButton className="flex-1">
-                <ChevronRight className="transition-transform" />
+                <ChevronRight
+                  className={`transition-transform ${isOpen ? "rotate-90" : ""}`}
+                />
                 <Folder className="h-4 w-4 mr-2 shrink-0" />
                 <span>{folderName}</span>
               </SidebarMenuButton>
